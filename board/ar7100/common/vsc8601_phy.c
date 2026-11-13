@@ -951,12 +951,31 @@ vsc8601_phy_setup_vsc8601_Rev_A(uint16_t unit, uint16_t phy_addr)
   vsc8601_phy_rmw_ex_crtl_set_1(unit, phy_addr, 1<<8, 1<<8);
 }
 
-static void 
+static void
 vsc8601_phy_setup_vsc8601_Rev_B(uint16_t unit, uint16_t phy_addr)
 {
-  vsc8601_phy_mii_set_duplex(unit, phy_addr, 1);
-#ifdef CONFIG_AR9100
-  vsc8601_phy_rmw_ex_crtl_set_1(unit, phy_addr, 1<<8, 1<<8);
+    /*
+     * Enable full duplex.
+     */
+    vsc8601_phy_mii_set_duplex(unit, phy_addr, 1);
+
+    /*
+     * VSC8601 Rev.B RGMII skew.
+     *
+     * BSAP1880 / BB1002 Ethernet interface is RGMII-ID.
+     * Enable the 2ns internal RX/TX skew for BB1002.
+     *
+     * Other boards remain unchanged.
+     */
+#if defined(CONFIG_AR9100) || defined(CFG_BOARD_BB1002)
+
+    vsc8601_phy_rmw_ex_crtl_set_1(
+        unit,
+        phy_addr,
+        1 << 8,
+        1 << 8
+    );
+
 #endif
 }
 

@@ -118,25 +118,96 @@ if(!unit) \
 
 #ifdef CFG_VSC8601_PHY
 
+#include <miiphy.h>
+
 #define ag7100_phy_setup(unit) do { \
-if(!unit) \
+    if (!(unit)) \
         vsc8601_phy_setup(unit); \
 } while (0);
 
+
 #define ag7100_phy_link(unit,link,fdx,speed) do { \
-if(!unit) \
-        link=miiphy_link("eth0", CFG_PHY_ADDR); \
+    if (!(unit)) \
+        link = miiphy_link("eth0", CFG_PHY_ADDR); \
 } while (0);
 
+
 #define ag7100_phy_duplex(unit,duplex) do { \
-if(!unit) \
+    if (!(unit)) \
         duplex = miiphy_duplex("eth0", CFG_PHY_ADDR); \
 } while (0);
 
+
 #define ag7100_phy_speed(unit,speed) do { \
-if(!unit) \
+    if (!(unit)) \
         speed = miiphy_speed("eth0", CFG_PHY_ADDR); \
 } while (0);
+
+
+/*
+ * VSC8601 link status helper for non-AR9100 path.
+ *
+ * ag7100_check_link() in ag7100.c calls:
+ *
+ *   ag7100_get_link_status()
+ *
+ * when AR9100 is not defined.
+ *
+ * Original CFG_VSC8601_PHY branch did not provide this helper.
+ */
+
+static inline unsigned int
+ag7100_get_link_status(int unit,
+                       unsigned int *link,
+                       unsigned int *fdx,
+                       unsigned int *speed)
+{
+    if (unit != 0) {
+        *link = 0;
+        *fdx = 0;
+        *speed = _10BASET;
+        return 0;
+    }
+
+    /*
+     * Read PHY link status.
+     */
+    *link = (miiphy_link("eth0", CFG_PHY_ADDR) > 0) ? 1 : 0;
+
+    if (!*link) {
+        *fdx = 0;
+        *speed = _10BASET;
+        return 0;
+    }
+
+    /*
+     * miiphy_duplex() returns FULL or HALF.
+     *
+     * MAC driver expects boolean:
+     *   1 = Full duplex
+     *   0 = Half duplex
+     */
+    *fdx = (miiphy_duplex("eth0", CFG_PHY_ADDR) == FULL) ? 1 : 0;
+
+    /*
+     * miiphy_speed() returns:
+     *   10
+     *   100
+     *   1000
+     */
+    *speed = miiphy_speed("eth0", CFG_PHY_ADDR);
+
+    /*
+     * Reject unexpected PHY speed values.
+     */
+    if (*speed != _10BASET &&
+        *speed != _100BASET &&
+        *speed != _1000BASET) {
+        *link = 0;
+    }
+
+    return 0;
+}
 
 #endif
 

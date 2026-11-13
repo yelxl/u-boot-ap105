@@ -151,7 +151,9 @@ static int ag7100_recv(struct eth_device *dev)
     return (0);
 }
 
-#if defined(CFG_ATHRS16_PHY) || defined(CFG_ATHRF1_PHY)
+#if defined(CFG_ATHRS16_PHY) || \
+    defined(CFG_ATHRF1_PHY)  || \
+    defined(CFG_VSC8601_PHY)
 /*
  * program the usb pll (misnomer) to genrate appropriate clock
  * Write 2 into control field
@@ -266,7 +268,31 @@ static void ag7100_set_mac_from_link(ag7100_mac_t *mac, int speed, int fdx)
     mac->speed = speed;
     mac->duplex = fdx;
 
+#ifdef CFG_VSC8601_PHY
+
+    /*
+     * AR7100 MII_CTRL SPEED[5:4]:
+     *
+     * 00 = 10 Mbps
+     * 01 = 100 Mbps
+     * 10 = 1000 Mbps
+     *
+     * miiphy_speed() returns 10/100/1000,
+     * not the MII_CTRL encoded value.
+     */
+    if (speed == _1000BASET) {
+        ag7100_set_mii_ctrl_speed(mac, 2);
+    } else if (speed == _100BASET) {
+        ag7100_set_mii_ctrl_speed(mac, 1);
+    } else {
+        ag7100_set_mii_ctrl_speed(mac, 0);
+    }
+
+#else
+
     ag7100_set_mii_ctrl_speed(mac, speed);
+
+#endif
     ag7100_set_mac_if(mac, is1000);
     ag7100_set_mac_duplex(mac, fdx);
 
@@ -275,7 +301,9 @@ static void ag7100_set_mac_from_link(ag7100_mac_t *mac, int speed, int fdx)
     /*
      * XXX program PLL
      */
-#if defined(CFG_ATHRS16_PHY) || defined(CFG_ATHRF1_PHY)
+#if defined(CFG_ATHRS16_PHY) || \
+    defined(CFG_ATHRF1_PHY)  || \
+    defined(CFG_VSC8601_PHY)
     if (is1000)
         ag7100_set_pll(mac, 0x110000);
     else if (is100)
@@ -531,8 +559,126 @@ ag7100_mac_addr_loc(void)
 
 }
 
+#ifdef CFG_BOARD_BB1002
+
+static int bb1002_mac_is_valid(unsigned char *mac)
+{
+    int i;
+    int all_zero = 1;
+    int all_ff = 1;
+
+    for (i = 0; i < 6; i++) {
+
+        if (mac[i] != 0)
+            all_zero = 0;
+
+        if (mac[i] != 0xff)
+            all_ff = 0;
+    }
+
+    /*
+     * Reject multicast, all-zero and all-FF addresses.
+     */
+    if (mac[0] & 0x01)
+        return 0;
+
+    if (all_zero || all_ff)
+        return 0;
+
+    return 1;
+}
+
+
+static int bb1002_parse_ethaddr(char *s, unsigned char *mac)
+{
+    int i;
+    char *end;
+    unsigned long value;
+
+    if (s == NULL)
+        return 0;
+
+    if (strlen(s) != 17)
+        return 0;
+
+    for (i = 0; i < 6; i++) {
+
+        value = simple_strtoul(s, &end, 16);
+
+        if (end != s + 2)
+            return 0;
+
+        if (value > 0xff)
+            return 0;
+
+        if (i < 5) {
+            if (*end != ':')
+                return 0;
+        } else {
+            if (*end != '\0')
+                return 0;
+        }
+
+        mac[i] = (unsigned char)value;
+
+        if (i < 5)
+            s = end + 1;
+    }
+
+    return bb1002_mac_is_valid(mac);
+}
+
+#endif
+
 static void ag7100_get_ethaddr(struct eth_device *dev)
 {
+#ifdef CFG_BOARD_BB1002
+
+    unsigned char *mac = dev->enetaddr;
+    char *env_mac;
+
+    /*
+     * First choice:
+     * use the real per-device MAC stored in U-Boot environment.
+     */
+    env_mac = getenv("ethaddr");
+
+    if (strcmp(dev->name, "eth0") == 0 &&
+        bb1002_parse_ethaddr(env_mac, mac)) {
+        return;
+    }
+
+#ifdef BOARDCAL
+
+    /*
+     * Second choice:
+     * read MAC from verified Board data physical address.
+     */
+    memcpy(mac, (unsigned char *)BOARDCAL, 6);
+
+    if (bb1002_mac_is_valid(mac)) {
+        return;
+    }
+
+#endif
+
+    /*
+     * Never silently use AP175's hard-coded fallback MAC.
+     */
+    memset(mac, 0, 6);
+
+    printf("BB1002: no valid ethaddr found.\n");
+    printf("Set ethaddr using setenv and saveenv.\n");
+
+    return;
+
+#else
+
+    /*
+     * Original code for all non-BB1002 boards.
+     * Keep unchanged.
+     */
+
     unsigned char *eeprom;
     unsigned char *mac = dev->enetaddr;
 
@@ -540,24 +686,32 @@ static void ag7100_get_ethaddr(struct eth_device *dev)
 
     if (strcmp(dev->name, "eth0") == 0) {
         memcpy(mac, eeprom, 6);
+
     } else if (strcmp(dev->name, "eth1") == 0) {
+
         eeprom += 6;
         memcpy(mac, eeprom, 6);
+
     } else {
-        printf("%s: unknown ethernet device %s\n", __func__, dev->name);
+
+        printf("%s: unknown ethernet device %s\n",
+               __func__, dev->name);
         return;
     }
 
-    /* Use fixed address if the above address is invalid */
     if (mac[0] == 0xff && mac[5] == 0xff) {
+
         mac[0] = 0x00;
         mac[1] = 0x03;
         mac[2] = 0x7f;
         mac[3] = 0x09;
         mac[4] = 0x0b;
         mac[5] = 0xad;
+
         printf("No valid address in Flash. Using fixed address\n");
     }
+
+#endif
 }
 
 #ifdef CONFIG_AR9100_MDIO_DEBUG
@@ -799,4 +953,3 @@ U_BOOT_CMD(
 #endif
 
 #endif		/* CONFIG_COMMANDS & CFG_CMD_MII */
-

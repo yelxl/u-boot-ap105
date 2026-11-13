@@ -1932,6 +1932,11 @@ ap105_config		: 	unconfig
 	@echo "#define CONFIG_AR7100 1" >>include/config.h
 	@./mkconfig -a ap105 mips mips ap105 ar7100 ar7100
 
+bb1002_config : unconfig
+	@ >include/config.h
+	@echo "#define CONFIG_AR7100 1" >>include/config.h
+	@./mkconfig -a bb1002 mips mips bb1002 ar7100 ar7100
+
 ap175_config		: 	unconfig
 	@ >include/config.h
 	@echo "#define CONFIG_AR7100 1" >>include/config.h
